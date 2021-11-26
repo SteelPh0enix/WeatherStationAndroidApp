@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">Weather Station</string>
+    <string name="sync_app_with_device">Synchronize</string>
+    <string name="settings">Settings</string>
+    <string name="main_view">Main view</string>
+
+    <string name="temperature">Temperature:</string>
+    <string name="humidity">Humidity:</string>
+    <string name="pressure">Pressure:</string>
+
+    <string name="temperature_chart">Temperature chart</string>
+    <string name="humidity_chart">Humidity chart</string>
+    <string name="pressure_chart">Pressure chart</string>
+</resources>
