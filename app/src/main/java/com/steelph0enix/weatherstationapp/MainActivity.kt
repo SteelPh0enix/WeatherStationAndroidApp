@@ -58,6 +58,16 @@ class MainActivity : AppCompatActivity() {
                     Log.i("MainActivity", "List of GATT services:")
                     displayGattServices(weatherStationService?.getSupportedGattServices())
                 }
+                WeatherStationService.ACTION_GATT_CHARACTERISTICS_DISCOVERED -> {
+                    Log.i("MainActivity", "Found weather station characteristics, ready to work!")
+                    weatherStationService?.setCurrentDateAndTime()
+                }
+                WeatherStationService.ACTION_DATA_RECEIVED -> {
+                    Log.i("MainActivity", "New data received from station")
+                }
+                WeatherStationService.ACTION_DATA_AVAILABLE -> {
+                    Log.i("MainActivity", "New data is available on the station!")
+                }
             }
         }
     }
@@ -136,6 +146,9 @@ class MainActivity : AppCompatActivity() {
             addAction(WeatherStationService.ACTION_GATT_CONNECTED)
             addAction(WeatherStationService.ACTION_GATT_DISCONNECTED)
             addAction(WeatherStationService.ACTION_GATT_SERVICES_DISCOVERED)
+            addAction(WeatherStationService.ACTION_GATT_CHARACTERISTICS_DISCOVERED)
+            addAction(WeatherStationService.ACTION_DATA_RECEIVED)
+            addAction(WeatherStationService.ACTION_DATA_AVAILABLE)
         }
     }
 
