@@ -24,17 +24,20 @@ class MainActivity : AppCompatActivity() {
     private lateinit var toolbar: Toolbar
 
     private var weatherStationService: WeatherStationService? = null
-    private var connectedToStation = false
 
     private val serviceConnection: ServiceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             weatherStationService = (service as WeatherStationService.LocalBinder).getService()
             weatherStationService?.let { wsService ->
                 Log.d("MainActivity", "Starting WeatherStationService")
-                wsService.initialize()
-                checkBLEPermissions()
-                checkIfBLEIsOn()
-                wsService.lookForWeatherStation()
+                if (wsService.initialize()) {
+                    checkBLEPermissions()
+                    checkIfBLEIsOn()
+                    wsService.beginConnectionProcess()
+                } else {
+                    Log.e("MainActivity", "Couldn't init weather station service, aborting!")
+                    weatherStationService = null
+                }
             }
         }
 
@@ -46,27 +49,11 @@ class MainActivity : AppCompatActivity() {
     private val gattUpdateReceiver: BroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
-                WeatherStationService.ACTION_GATT_CONNECTED -> {
-                    Log.i("MainActivity", "Connected to weather station!")
-                    connectedToStation = true
+                WeatherStationService.ACTION_CONNECTED -> {
+                    Log.i("MainActivity", "Connected to station!")
                 }
-                WeatherStationService.ACTION_GATT_DISCONNECTED -> {
-                    Log.i("MainActivity", "Disconnected from weather station!")
-                    connectedToStation = false
-                }
-                WeatherStationService.ACTION_GATT_SERVICES_DISCOVERED -> {
-                    Log.i("MainActivity", "List of GATT services:")
-                    displayGattServices(weatherStationService?.getSupportedGattServices())
-                }
-                WeatherStationService.ACTION_GATT_CHARACTERISTICS_DISCOVERED -> {
-                    Log.i("MainActivity", "Found weather station characteristics, ready to work!")
-                    weatherStationService?.setCurrentDateAndTime()
-                }
-                WeatherStationService.ACTION_DATA_RECEIVED -> {
-                    Log.i("MainActivity", "New data received from station")
-                }
-                WeatherStationService.ACTION_DATA_AVAILABLE -> {
-                    Log.i("MainActivity", "New data is available on the station!")
+                WeatherStationService.ACTION_DISCONNECTED -> {
+                    Log.i("MainActivity", "Disconnected from station!")
                 }
             }
         }
@@ -101,9 +88,10 @@ class MainActivity : AppCompatActivity() {
         return when (item.itemId) {
             R.id.menu_refresh_data -> {
                 Log.d("MainActivity", "Refresh data clicked!")
-                if (!connectedToStation) {
+                if (weatherStationService != null && weatherStationService?.isConnected() == true) {
                     Log.d("MainActivity", "Not connected to weather station, scanning...")
-                    weatherStationService?.lookForWeatherStation()
+                    weatherStationService?.beginConnectionProcess()
+                } else {
                 }
                 true
             }
@@ -131,7 +119,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         registerReceiver(gattUpdateReceiver, makeGattUpdateIntentFilter())
         if (weatherStationService != null) {
-            val result = weatherStationService!!.lookForWeatherStation()
+            val result = weatherStationService?.beginConnectionProcess()
             Log.d("MainActivity", "Started looking for weather station after resuming app...")
         }
     }
@@ -143,12 +131,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun makeGattUpdateIntentFilter(): IntentFilter? {
         return IntentFilter().apply {
-            addAction(WeatherStationService.ACTION_GATT_CONNECTED)
-            addAction(WeatherStationService.ACTION_GATT_DISCONNECTED)
-            addAction(WeatherStationService.ACTION_GATT_SERVICES_DISCOVERED)
-            addAction(WeatherStationService.ACTION_GATT_CHARACTERISTICS_DISCOVERED)
-            addAction(WeatherStationService.ACTION_DATA_RECEIVED)
-            addAction(WeatherStationService.ACTION_DATA_AVAILABLE)
+            addAction(WeatherStationService.ACTION_CONNECTED)
+            addAction(WeatherStationService.ACTION_DISCONNECTED)
         }
     }
 
@@ -166,8 +150,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun checkIfBLEIsOn() {
         if (weatherStationService != null &&
-            weatherStationService?.getBluetoothAdapter() != null &&
-            weatherStationService?.getBluetoothAdapter()?.isEnabled == false
+            weatherStationService?.bluetoothAdapter() != null &&
+            weatherStationService?.bluetoothAdapter()?.isEnabled == false
         ) {
             Log.i("Main activity", "Starting BLE enable intent...")
             val resultLauncher =
