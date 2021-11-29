@@ -29,10 +29,13 @@ class WeatherStationService : Service() {
     private var wsDevice: BluetoothDevice? = null
     private var wsIO: WeatherStationIO? = null
 
+    private var currentAmountOfRecordsAvailable = 0
+
     // Inline/companion objects
     companion object {
         const val ACTION_CONNECTED = "com.steelph0enix.weatherstationapp.ble.ACTION_CONNECTED"
         const val ACTION_DISCONNECTED = "com.steelph0enix.weatherstationapp.ble.ACTION_DISCONNECTED"
+        const val AMOUNT_OF_RECORDS_READ = "com.steelph0enix.weatherstationapp.ble.AMOUNT_OF_RECORDS_READ"
     }
 
     private val btDeviceFoundCallback: BLEDeviceFoundCallback = {
@@ -55,7 +58,8 @@ class WeatherStationService : Service() {
         }
 
         override fun deviceDiscoveryFinished(isSuccessful: Boolean) {
-            Log.i(LOGTAG, "Device discovery finished (callback)!")
+            Log.i(LOGTAG, "Device discovery finished (callback) with status $isSuccessful!")
+            wsIO?.setCurrentDateAndTime()
         }
 
         override fun recordFetched(record: WeatherRecord) {
@@ -70,6 +74,14 @@ class WeatherStationService : Service() {
             Log.i(LOGTAG, "Update interval changed (callback)!")
         }
 
+        override fun amountOfRecordsRead(amount: Int) {
+            Log.i(
+                LOGTAG,
+                "Amount of records read (callback), there's $amount records on the station!"
+            )
+            currentAmountOfRecordsAvailable = amount
+            broadcastUpdate(AMOUNT_OF_RECORDS_READ)
+        }
     }
 
     // Public methods
@@ -78,6 +90,8 @@ class WeatherStationService : Service() {
     fun isConnected() = wsIO?.isConnectedToStation() ?: false
     fun isInitialized() = bluetoothAdapter() != null
     fun isDeviceFound() = wsDevice != null
+
+    fun amountOfRecords() = currentAmountOfRecordsAvailable
 
     /// Other methods
     fun initialize(): Boolean {
@@ -100,12 +114,19 @@ class WeatherStationService : Service() {
     fun beginConnectionProcess(): Boolean {
         Log.i(LOGTAG, "Beginning connection process...")
         if (!isInitialized()) {
-            Log.e(LOGTAG, "Tried to begin connection process before initializing the service, aborting!")
+            Log.e(
+                LOGTAG,
+                "Tried to begin connection process before initializing the service, aborting!"
+            )
             return false
         }
 
         startScanForWeatherStation()
         return true
+    }
+
+    fun updateAmountOfRecords() {
+        wsIO?.getAmountOfRecords()
     }
 
     // Private methods
@@ -128,7 +149,7 @@ class WeatherStationService : Service() {
             return false
         }
 
-        wsIO =  WeatherStationIO(wsIOCallbacks)
+        wsIO = WeatherStationIO(wsIOCallbacks)
         wsDevice?.connectGatt(this, false, wsIO?.gattCallback())
         return true
     }

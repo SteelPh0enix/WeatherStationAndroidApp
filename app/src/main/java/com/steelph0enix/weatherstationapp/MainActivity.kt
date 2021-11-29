@@ -55,6 +55,9 @@ class MainActivity : AppCompatActivity() {
                 WeatherStationService.ACTION_DISCONNECTED -> {
                     Log.i("MainActivity", "Disconnected from station!")
                 }
+                WeatherStationService.AMOUNT_OF_RECORDS_READ -> {
+                    Log.i("MainActivity", "Amount of records on the device: ${weatherStationService?.amountOfRecords()}")
+                }
             }
         }
     }
@@ -88,10 +91,11 @@ class MainActivity : AppCompatActivity() {
         return when (item.itemId) {
             R.id.menu_refresh_data -> {
                 Log.d("MainActivity", "Refresh data clicked!")
-                if (weatherStationService != null && weatherStationService?.isConnected() == true) {
+                if (weatherStationService == null || weatherStationService?.isConnected() == false) {
                     Log.d("MainActivity", "Not connected to weather station, scanning...")
                     weatherStationService?.beginConnectionProcess()
                 } else {
+                    weatherStationService?.updateAmountOfRecords()
                 }
                 true
             }
@@ -133,6 +137,7 @@ class MainActivity : AppCompatActivity() {
         return IntentFilter().apply {
             addAction(WeatherStationService.ACTION_CONNECTED)
             addAction(WeatherStationService.ACTION_DISCONNECTED)
+            addAction(WeatherStationService.AMOUNT_OF_RECORDS_READ)
         }
     }
 
