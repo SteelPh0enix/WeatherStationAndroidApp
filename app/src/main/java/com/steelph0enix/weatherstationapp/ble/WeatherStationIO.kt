@@ -3,8 +3,6 @@ package com.steelph0enix.weatherstationapp.ble
 import android.bluetooth.*
 import android.util.Log
 import com.steelph0enix.weatherstationapp.WeatherStationConstants
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
 import java.util.*
 
 private const val LOGTAG = "WeatherStationIO"
@@ -36,11 +34,12 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
     private var weatherStationService: BluetoothGattService? = null
     private var weatherStationGatt: BluetoothGatt? = null
     private val weatherStationChars = mutableMapOf<String, BluetoothGattCharacteristic>()
+    private val operationQueue = ArrayDeque<() -> Unit>()
 
     private var isConnected = false
     private var areServicesDiscovered = false
     private var areCharsDiscovered = false
-    private var transactionInProgress = false
+
 
     private val bluetoothGattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
@@ -75,8 +74,16 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
                 LOGTAG,
                 "Characteristic ${characteristic?.uuid.toString()} written with status $status"
             )
+            // remove last operation (the one that caused the callback)
+            operationQueue.removeLast()
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                transactionInProgress = false
+                // nothing to do here, really
+                Log.i(LOGTAG, "Write was successful!")
+            }
+            // run next operation
+            if (operationQueue.size > 0) {
+                val nextOp = operationQueue.last
+                nextOp()
             }
         }
 
@@ -89,14 +96,22 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
                 LOGTAG,
                 "Characteristic ${characteristic?.uuid.toString()} read with status $status"
             )
+            // remove last operation (the one that caused the callback)
+            operationQueue.removeLast()
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                transactionInProgress = false
+                Log.i(LOGTAG, "Read was successful!")
+
                 when (characteristic?.uuid.toString()) {
                     WeatherStationConstants.WEATHER_STATION_CHAR_UUID_NO_OF_RECORDS -> {
                         characteristic?.getIntValue(BluetoothGattCharacteristic.FORMAT_UINT16, 0)
                             ?.let { callbacks.amountOfRecordsRead(it) }
                     }
                 }
+            }
+            // run next operation
+            if (operationQueue.size > 0) {
+                val lastOp = operationQueue.last
+                lastOp()
             }
         }
 
@@ -119,7 +134,6 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
     fun isConnectedToStation() = isConnected
     fun areCharacteristicsDiscovered() = areCharsDiscovered
     fun gattCallback() = bluetoothGattCallback
-    fun isTransactionInProgress() = transactionInProgress
 
     fun getAmountOfRecords() {
         readChar(WeatherStationConstants.WEATHER_STATION_CHAR_UUID_NO_OF_RECORDS)
@@ -140,33 +154,39 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
         writeControlByte(WeatherStationConstants.WEATHER_STATION_CONTROL_SET_DATE_AND_TIME)
     }
 
-    private fun readChar(charUUID: String) = runBlocking {
+    private fun readChar(charUUID: String) {
         Log.d(LOGTAG, "Requested read from char $charUUID")
-        val charToRead = weatherStationChars[charUUID] ?: return@runBlocking
-        while (transactionInProgress) {
-            delay(10)
+        val charToRead = weatherStationChars[charUUID] ?: return
+
+        operationQueue.addFirst {
+            Log.d(LOGTAG, "Starting read from characteristic ${charUUID}!")
+            weatherStationGatt?.readCharacteristic(charToRead)
         }
 
-        Log.d(LOGTAG, "Char found, no transaction in progress, starting read operation...")
-        transactionInProgress = true
-        weatherStationGatt?.readCharacteristic(charToRead)
+        if (operationQueue.size == 1) {
+            val lastOp = operationQueue.last
+            lastOp()
+        }
     }
 
-    private fun writeChar(char: BluetoothGattCharacteristic) = runBlocking {
+    private fun writeChar(char: BluetoothGattCharacteristic) {
         Log.d(LOGTAG, "Requested write to char ${char.uuid.toString()}")
-        while (transactionInProgress) {
-            delay(10)
+
+        operationQueue.addFirst {
+            Log.d(LOGTAG, "Starting write to characteristic ${char.uuid.toString()}!")
+            weatherStationGatt?.writeCharacteristic(char)
         }
 
-        Log.d(LOGTAG, "Char found, no transaction in progress, starting write operation...")
-        transactionInProgress = true
-        weatherStationGatt?.writeCharacteristic(char)
+        if (operationQueue.size == 1) {
+            val lastOp = operationQueue.last
+            lastOp()
+        }
     }
 
-    private fun writeDate(year: Int, month: Int, day: Int, dayOfWeek: Int) = runBlocking {
+    private fun writeDate(year: Int, month: Int, day: Int, dayOfWeek: Int) {
         val dateChar =
             weatherStationChars[WeatherStationConstants.WEATHER_STATION_CHAR_UUID_DATE]
-                ?: return@runBlocking
+                ?: return
 
         dateChar.value = byteArrayOf(
             year.toByte(), month.toByte(), day.toByte(), dayOfWeek.toByte()
@@ -175,19 +195,19 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
         writeChar(dateChar)
     }
 
-    private fun writeTime(hour: Int, minute: Int, second: Int) = runBlocking {
+    private fun writeTime(hour: Int, minute: Int, second: Int) {
         val timeChar = weatherStationChars[WeatherStationConstants.WEATHER_STATION_CHAR_UUID_TIME]
-            ?: return@runBlocking
+            ?: return
 
         timeChar.value = byteArrayOf(hour.toByte(), minute.toByte(), second.toByte())
 
         writeChar(timeChar)
     }
 
-    private fun writeControlByte(value: Byte) = runBlocking {
+    private fun writeControlByte(value: Byte) {
         val controlChar =
             weatherStationChars[WeatherStationConstants.WEATHER_STATION_CHAR_UUID_CONTROL]
-                ?: return@runBlocking
+                ?: return
 
         controlChar.value = byteArrayOf(value)
 
