@@ -33,6 +33,7 @@ class WeatherStationService : Service() {
 
     // Inline/companion objects
     companion object {
+        const val ACTION_STATION_FOUND = "com.steelph0enix.weatherstationapp.ble.ACTION_STATION_FOUND"
         const val ACTION_CONNECTED = "com.steelph0enix.weatherstationapp.ble.ACTION_CONNECTED"
         const val ACTION_DISCONNECTED = "com.steelph0enix.weatherstationapp.ble.ACTION_DISCONNECTED"
         const val AMOUNT_OF_RECORDS_READ = "com.steelph0enix.weatherstationapp.ble.AMOUNT_OF_RECORDS_READ"
@@ -43,6 +44,7 @@ class WeatherStationService : Service() {
         btScanner?.stopLastScan()
 
         Log.i(LOGTAG, "Found weather station device with MAC ${wsDevice?.address}")
+        broadcastUpdate(ACTION_STATION_FOUND)
         connectToWeatherStation()
     }
 
@@ -107,9 +109,9 @@ class WeatherStationService : Service() {
         return true
     }
 
-    fun close() {
-
-    }
+//    fun close() {
+//
+//    }
 
     fun beginConnectionProcess(): Boolean {
         Log.i(LOGTAG, "Beginning connection process...")
@@ -165,7 +167,7 @@ class WeatherStationService : Service() {
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
-        close()
+//        close()
         return super.onUnbind(intent)
     }
 

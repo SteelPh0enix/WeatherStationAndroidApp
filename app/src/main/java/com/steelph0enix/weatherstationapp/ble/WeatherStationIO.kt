@@ -74,17 +74,12 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
                 LOGTAG,
                 "Characteristic ${characteristic?.uuid.toString()} written with status $status"
             )
-            // remove last operation (the one that caused the callback)
-            operationQueue.removeLast()
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 // nothing to do here, really
                 Log.i(LOGTAG, "Write was successful!")
             }
             // run next operation
-            if (operationQueue.size > 0) {
-                val nextOp = operationQueue.last
-                nextOp()
-            }
+            runNextOperationFromQueue()
         }
 
         override fun onCharacteristicRead(
@@ -96,8 +91,6 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
                 LOGTAG,
                 "Characteristic ${characteristic?.uuid.toString()} read with status $status"
             )
-            // remove last operation (the one that caused the callback)
-            operationQueue.removeLast()
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 Log.i(LOGTAG, "Read was successful!")
 
@@ -109,10 +102,7 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
                 }
             }
             // run next operation
-            if (operationQueue.size > 0) {
-                val lastOp = operationQueue.last
-                lastOp()
-            }
+            runNextOperationFromQueue()
         }
 
         override fun onCharacteristicChanged(
@@ -127,7 +117,21 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
                         Log.i(LOGTAG, "Control byte value changed to $controlByteValue")
                     }
                 }
+                WeatherStationConstants.WEATHER_STATION_CHAR_UUID_NO_OF_RECORDS -> {
+                    val weatherRecordsCount = characteristic?.value?.get(0)?.toInt() ?: -1
+                    if (weatherRecordsCount >= 0) {
+                        Log.i(LOGTAG, "There are $weatherRecordsCount records available on the device")
+                    }
+                }
             }
+        }
+
+        override fun onDescriptorWrite(
+            gatt: BluetoothGatt?,
+            descriptor: BluetoothGattDescriptor?,
+            status: Int
+        ) {
+            runNextOperationFromQueue()
         }
     }
 
@@ -154,6 +158,21 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
         writeControlByte(WeatherStationConstants.WEATHER_STATION_CONTROL_SET_DATE_AND_TIME)
     }
 
+    private fun enableOperationQueue() {
+        if (operationQueue.size == 1) {
+            val lastOp = operationQueue.last
+            lastOp()
+        }
+    }
+
+    private fun runNextOperationFromQueue() {
+        operationQueue.removeLast()
+        if (operationQueue.size > 0) {
+            val lastOp = operationQueue.last
+            lastOp()
+        }
+    }
+
     private fun readChar(charUUID: String) {
         Log.d(LOGTAG, "Requested read from char $charUUID")
         val charToRead = weatherStationChars[charUUID] ?: return
@@ -163,10 +182,7 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
             weatherStationGatt?.readCharacteristic(charToRead)
         }
 
-        if (operationQueue.size == 1) {
-            val lastOp = operationQueue.last
-            lastOp()
-        }
+        enableOperationQueue()
     }
 
     private fun writeChar(char: BluetoothGattCharacteristic) {
@@ -177,10 +193,21 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
             weatherStationGatt?.writeCharacteristic(char)
         }
 
-        if (operationQueue.size == 1) {
-            val lastOp = operationQueue.last
-            lastOp()
+        enableOperationQueue()
+    }
+
+    private fun enableCharNotifications(char: BluetoothGattCharacteristic?) {
+        val CCCDUUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+
+        val descriptor = char?.getDescriptor(CCCDUUID)
+
+        operationQueue.addFirst {
+            weatherStationGatt?.setCharacteristicNotification(char, true)
+            descriptor?.value = (BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+            weatherStationGatt?.writeDescriptor(descriptor)
         }
+
+        enableOperationQueue()
     }
 
     private fun writeDate(year: Int, month: Int, day: Int, dayOfWeek: Int) {
@@ -248,6 +275,12 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
         weatherStationService?.characteristics?.forEach { char ->
             weatherStationChars.putIfAbsent(char.uuid.toString(), char)
         }
+
+        // Setup control char notifications
+        val controlChar = weatherStationChars[WeatherStationConstants.WEATHER_STATION_CHAR_UUID_CONTROL]
+        val numberOfMeasurementsChar = weatherStationChars[WeatherStationConstants.WEATHER_STATION_CHAR_UUID_NO_OF_RECORDS]
+        enableCharNotifications(controlChar)
+        enableCharNotifications(numberOfMeasurementsChar)
 
         areCharsDiscovered = true
         callbacks.deviceDiscoveryFinished(true)

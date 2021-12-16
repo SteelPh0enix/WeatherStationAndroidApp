@@ -12,6 +12,7 @@ import android.util.Log
 import android.view.Menu
 import android.view.MenuInflater
 import android.view.MenuItem
+import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
@@ -21,9 +22,20 @@ import com.example.weatherstationapp.R
 import com.steelph0enix.weatherstationapp.ble.WeatherStationService
 
 class MainActivity : AppCompatActivity() {
+    enum class AppState {
+        IDLE,
+        LOOKING_FOR_STATION,
+        CONNECTING,
+        CONNECTED,
+        FETCHING_DATA
+    }
+
     private lateinit var toolbar: Toolbar
 
     private var weatherStationService: WeatherStationService? = null
+    private var appState = AppState.IDLE
+
+    private var statusTextView: TextView? = null
 
     private val serviceConnection: ServiceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -34,6 +46,7 @@ class MainActivity : AppCompatActivity() {
                     checkBLEPermissions()
                     checkIfBLEIsOn()
                     wsService.beginConnectionProcess()
+                    setAppState(AppState.LOOKING_FOR_STATION)
                 } else {
                     Log.e("MainActivity", "Couldn't init weather station service, aborting!")
                     weatherStationService = null
@@ -49,14 +62,22 @@ class MainActivity : AppCompatActivity() {
     private val gattUpdateReceiver: BroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
+                WeatherStationService.ACTION_STATION_FOUND -> {
+                    Log.i("MainActivity", "Station found, connecting...")
+                    setAppState(AppState.CONNECTING)
+                }
                 WeatherStationService.ACTION_CONNECTED -> {
                     Log.i("MainActivity", "Connected to station!")
+                    setAppState(AppState.CONNECTED)
                 }
                 WeatherStationService.ACTION_DISCONNECTED -> {
                     Log.i("MainActivity", "Disconnected from station!")
                 }
                 WeatherStationService.AMOUNT_OF_RECORDS_READ -> {
-                    Log.i("MainActivity", "Amount of records on the device: ${weatherStationService?.amountOfRecords()}")
+                    Log.i(
+                        "MainActivity",
+                        "Amount of records on the device: ${weatherStationService?.amountOfRecords()}"
+                    )
                 }
             }
         }
@@ -74,8 +95,11 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         toolbar = findViewById(R.id.app_toolbar)
+        statusTextView = findViewById(R.id.text_view_status)
 
         setSupportActionBar(toolbar)
+
+        setAppState(AppState.IDLE)
 
         val gattServiceIntent = Intent(this, WeatherStationService::class.java)
         bindService(gattServiceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
@@ -122,8 +146,9 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         registerReceiver(gattUpdateReceiver, makeGattUpdateIntentFilter())
-        if (weatherStationService != null) {
+        if (weatherStationService != null && weatherStationService?.isConnected() == false) {
             val result = weatherStationService?.beginConnectionProcess()
+            setAppState(AppState.LOOKING_FOR_STATION)
             Log.d("MainActivity", "Started looking for weather station after resuming app...")
         }
     }
@@ -135,6 +160,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun makeGattUpdateIntentFilter(): IntentFilter? {
         return IntentFilter().apply {
+            addAction(WeatherStationService.ACTION_STATION_FOUND)
             addAction(WeatherStationService.ACTION_CONNECTED)
             addAction(WeatherStationService.ACTION_DISCONNECTED)
             addAction(WeatherStationService.AMOUNT_OF_RECORDS_READ)
@@ -181,5 +207,17 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    private fun setAppState(newState: AppState) {
+        when (newState) {
+            AppState.IDLE -> statusTextView?.text = getString(R.string.status_idle)
+            AppState.LOOKING_FOR_STATION -> statusTextView?.text = getString(R.string.status_looking_for_station)
+            AppState.CONNECTING -> statusTextView?.text = getString(R.string.status_connecting)
+            AppState.CONNECTED -> statusTextView?.text = getString(R.string.status_connected)
+            AppState.FETCHING_DATA -> statusTextView?.text = getString(R.string.status_fetching_data, weatherStationService?.amountOfRecords())
+        }
+
+        appState = newState
     }
 }

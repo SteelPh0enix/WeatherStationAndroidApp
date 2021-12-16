@@ -7,6 +7,13 @@
     <string name="temperature">Temperature:</string>
     <string name="humidity">Humidity:</string>
     <string name="pressure">Pressure:</string>
+    <string name="status">Status:</string>
+
+    <string name="status_idle">Idle</string>
+    <string name="status_looking_for_station">Looking for station…</string>
+    <string name="status_connecting">Connecting…</string>
+    <string name="status_connected">Connected</string>
+    <string name="status_fetching_data">Fetching measurements, %1$d left…</string>
 
     <string name="temperature_chart">Temperature chart</string>
     <string name="humidity_chart">Humidity chart</string>
