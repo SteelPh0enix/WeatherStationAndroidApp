@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothGattService
 import android.content.*
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Bundle
 import android.os.IBinder
 import android.util.Log
@@ -19,6 +20,7 @@ import androidx.appcompat.widget.Toolbar
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.weatherstationapp.R
+import com.github.mikephil.charting.charts.LineChart
 import com.steelph0enix.weatherstationapp.ble.WeatherStationService
 
 class MainActivity : AppCompatActivity() {
@@ -31,11 +33,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var toolbar: Toolbar
+    private lateinit var temperatureTextView: TextView
+    private lateinit var statusTextView: TextView
+    private lateinit var pressureTextView: TextView
+    private lateinit var humidityTextView: TextView
+    private lateinit var temperatureChart: LineChart
+    private lateinit var pressureChart: LineChart
+    private lateinit var humidityChart: LineChart
+
+    private lateinit var temperatureChartManager: LineChartManager
+    private lateinit var pressureChartManager: LineChartManager
+    private lateinit var humidityChartManager: LineChartManager
 
     private var weatherStationService: WeatherStationService? = null
     private var appState = AppState.IDLE
-
-    private var statusTextView: TextView? = null
 
     private val serviceConnection: ServiceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -78,6 +89,38 @@ class MainActivity : AppCompatActivity() {
                         "MainActivity",
                         "Amount of records on the device: ${weatherStationService?.amountOfRecords()}"
                     )
+                    weatherStationService?.amountOfRecords()?.let { records ->
+                        if (records > 0) {
+                            weatherStationService?.startDataFetching()
+                        }
+                    }
+                }
+                WeatherStationService.RECORD_FETCHED -> {
+                    weatherStationService?.let { service ->
+                        val lastRecord = service.getLatestWeatherRecord()
+                        val lastRecordIndex = service.getLatestWeatherRecordIndex()
+
+                        temperatureTextView.text =
+                            getString(R.string.temperature_value_celcius, lastRecord.temperature)
+                        pressureTextView.text =
+                            getString(R.string.pressure_value, lastRecord.pressure)
+                        humidityTextView.text =
+                            getString(R.string.humidity_value, lastRecord.humidity)
+
+                        temperatureChartManager.addValue(
+                            lastRecordIndex.toFloat(),
+                            lastRecord.temperature
+                        )
+                        pressureChartManager.addValue(
+                            lastRecordIndex.toFloat(),
+                            lastRecord.pressure
+                        )
+                        humidityChartManager.addValue(
+                            lastRecordIndex.toFloat(),
+                            lastRecord.humidity
+                        )
+                    }
+
                 }
             }
         }
@@ -96,8 +139,22 @@ class MainActivity : AppCompatActivity() {
 
         toolbar = findViewById(R.id.app_toolbar)
         statusTextView = findViewById(R.id.text_view_status)
+        temperatureTextView = findViewById(R.id.text_view_temperature)
+        pressureTextView = findViewById(R.id.text_view_pressure)
+        humidityTextView = findViewById(R.id.text_view_humidity)
+        temperatureChart = findViewById(R.id.temperature_chart)
+        pressureChart = findViewById(R.id.pressure_chart)
+        humidityChart = findViewById(R.id.humidity_chart)
+
+        temperatureChartManager = LineChartManager(temperatureChart, applicationContext)
+        pressureChartManager = LineChartManager(pressureChart, applicationContext)
+        humidityChartManager = LineChartManager(humidityChart, applicationContext)
 
         setSupportActionBar(toolbar)
+
+        temperatureChartManager.initializeChart("Temperature", Color.RED, 0f, 50f)
+        pressureChartManager.initializeChart("Pressure", Color.GREEN, 900f, 1100f)
+        humidityChartManager.initializeChart("Humidity", Color.BLUE, 0f, 100f)
 
         setAppState(AppState.IDLE)
 
@@ -147,7 +204,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         registerReceiver(gattUpdateReceiver, makeGattUpdateIntentFilter())
         if (weatherStationService != null && weatherStationService?.isConnected() == false) {
-            val result = weatherStationService?.beginConnectionProcess()
+            weatherStationService?.beginConnectionProcess()
             setAppState(AppState.LOOKING_FOR_STATION)
             Log.d("MainActivity", "Started looking for weather station after resuming app...")
         }
@@ -158,12 +215,17 @@ class MainActivity : AppCompatActivity() {
         unregisterReceiver(gattUpdateReceiver)
     }
 
-    private fun makeGattUpdateIntentFilter(): IntentFilter? {
+    private fun updateChartData() {
+
+    }
+
+    private fun makeGattUpdateIntentFilter(): IntentFilter {
         return IntentFilter().apply {
             addAction(WeatherStationService.ACTION_STATION_FOUND)
             addAction(WeatherStationService.ACTION_CONNECTED)
             addAction(WeatherStationService.ACTION_DISCONNECTED)
             addAction(WeatherStationService.AMOUNT_OF_RECORDS_READ)
+            addAction(WeatherStationService.RECORD_FETCHED)
         }
     }
 
@@ -211,11 +273,22 @@ class MainActivity : AppCompatActivity() {
 
     private fun setAppState(newState: AppState) {
         when (newState) {
-            AppState.IDLE -> statusTextView?.text = getString(R.string.status_idle)
-            AppState.LOOKING_FOR_STATION -> statusTextView?.text = getString(R.string.status_looking_for_station)
-            AppState.CONNECTING -> statusTextView?.text = getString(R.string.status_connecting)
-            AppState.CONNECTED -> statusTextView?.text = getString(R.string.status_connected)
-            AppState.FETCHING_DATA -> statusTextView?.text = getString(R.string.status_fetching_data, weatherStationService?.amountOfRecords())
+            AppState.IDLE -> statusTextView.text = getString(R.string.status_idle)
+            AppState.LOOKING_FOR_STATION -> statusTextView.text =
+                getString(R.string.status_looking_for_station)
+            AppState.CONNECTING -> statusTextView.text = getString(R.string.status_connecting)
+            AppState.CONNECTED -> {
+                statusTextView.text = getString(R.string.status_connected)
+                if (weatherStationService?.amountOfRecords()!! > 0) {
+                    setAppState(AppState.FETCHING_DATA)
+                }
+            }
+            AppState.FETCHING_DATA -> {
+                statusTextView.text = getString(
+                    R.string.status_fetching_data,
+                    weatherStationService?.amountOfRecords()
+                )
+            }
         }
 
         appState = newState

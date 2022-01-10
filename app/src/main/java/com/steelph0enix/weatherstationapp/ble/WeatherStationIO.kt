@@ -8,15 +8,15 @@ import java.util.*
 private const val LOGTAG = "WeatherStationIO"
 
 data class WeatherRecord(
-    val year: Int,
-    val month: Int,
-    val day: Int,
-    val hour: Int,
-    val minute: Int,
-    val second: Int,
-    val temperature: Float,
-    val pressure: Float,
-    val humidity: Float
+    var year: Int = 0,
+    var month: Int = 0,
+    var day: Int = 0,
+    var hour: Int = 0,
+    var minute: Int = 0,
+    var second: Int = 0,
+    var temperature: Float = 0f,
+    var pressure: Float = 0f,
+    var humidity: Float = 0f
 )
 
 interface WeatherStationIOCallbacks {
@@ -39,6 +39,10 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
     private var isConnected = false
     private var areServicesDiscovered = false
     private var areCharsDiscovered = false
+    private var currentWeatherRecord = WeatherRecord()
+    private var currentControlByteValue: Byte = 0
+    private var isFetchingRecords = false
+    private var currentlyStoredRecordsCount = 0
 
 
     private val bluetoothGattCallback = object : BluetoothGattCallback() {
@@ -97,7 +101,67 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
                 when (characteristic?.uuid.toString()) {
                     WeatherStationConstants.WEATHER_STATION_CHAR_UUID_NO_OF_RECORDS -> {
                         characteristic?.getIntValue(BluetoothGattCharacteristic.FORMAT_UINT16, 0)
-                            ?.let { callbacks.amountOfRecordsRead(it) }
+                            ?.let {
+                                currentlyStoredRecordsCount = it
+                                callbacks.amountOfRecordsRead(it)
+                            }
+                    }
+                    WeatherStationConstants.WEATHER_STATION_CHAR_UUID_TIME -> {
+                        currentWeatherRecord.second =
+                            characteristic?.getIntValue(BluetoothGattCharacteristic.FORMAT_UINT8, 2)
+                                ?: 0
+                        currentWeatherRecord.minute =
+                            characteristic?.getIntValue(BluetoothGattCharacteristic.FORMAT_UINT8, 1)
+                                ?: 0
+                        currentWeatherRecord.hour =
+                            characteristic?.getIntValue(BluetoothGattCharacteristic.FORMAT_UINT8, 0)
+                                ?: 0
+                        Log.d(
+                            LOGTAG,
+                            "Time read: ${currentWeatherRecord.hour}:${currentWeatherRecord.minute}:${currentWeatherRecord.second}"
+                        )
+                    }
+                    WeatherStationConstants.WEATHER_STATION_CHAR_UUID_DATE -> {
+                        currentWeatherRecord.day =
+                            characteristic?.getIntValue(BluetoothGattCharacteristic.FORMAT_UINT8, 2)
+                                ?: 0
+                        currentWeatherRecord.month =
+                            characteristic?.getIntValue(BluetoothGattCharacteristic.FORMAT_UINT8, 1)
+                                ?: 0
+                        currentWeatherRecord.year = 2000 + (characteristic?.getIntValue(
+                            BluetoothGattCharacteristic.FORMAT_UINT8,
+                            0
+                        ) ?: 0)
+                        Log.d(
+                            LOGTAG,
+                            "Date read: ${currentWeatherRecord.day}-${currentWeatherRecord.month}-${currentWeatherRecord.year}"
+                        )
+                    }
+                    WeatherStationConstants.WEATHER_STATION_CHAR_UUID_TEMPERATURE -> {
+                        currentWeatherRecord.temperature = (characteristic?.getIntValue(
+                            BluetoothGattCharacteristic.FORMAT_SINT32,
+                            0
+                        ) ?: 0).toFloat() / 100f
+                        Log.d(LOGTAG, "Temperature read: ${currentWeatherRecord.temperature}")
+                    }
+                    WeatherStationConstants.WEATHER_STATION_CHAR_UUID_PRESSURE -> {
+                        currentWeatherRecord.pressure = (characteristic?.getIntValue(
+                            BluetoothGattCharacteristic.FORMAT_SINT32,
+                            0
+                        ) ?: 0).toFloat() / 100f
+                        Log.d(LOGTAG, "Pressure read: ${currentWeatherRecord.temperature}")
+
+                    }
+                    WeatherStationConstants.WEATHER_STATION_CHAR_UUID_HUMIDITY -> {
+                        currentWeatherRecord.humidity = (characteristic?.getIntValue(
+                            BluetoothGattCharacteristic.FORMAT_SINT32,
+                            0
+                        ) ?: 0).toFloat() / 100f
+                        Log.d(LOGTAG, "Humidity read: ${currentWeatherRecord.temperature}")
+
+                        // Humidity is last, so we make a bold assumption and
+                        // notify about new record, as it should be complete now
+                        notifyAboutNewRecord()
                     }
                 }
             }
@@ -115,12 +179,23 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
                     val controlByteValue = characteristic?.value?.get(0)?.toInt() ?: -1
                     if (controlByteValue >= 0) {
                         Log.i(LOGTAG, "Control byte value changed to $controlByteValue")
+                        currentControlByteValue = controlByteValue.toByte()
+
+                        // We're fetching records, so proceed...
+                        if (currentControlByteValue == WeatherStationConstants.WEATHER_STATION_CONTROL_NEXT_RECORD_AVAILABLE) {
+                            fetchNextRecord()
+                        }
                     }
                 }
                 WeatherStationConstants.WEATHER_STATION_CHAR_UUID_NO_OF_RECORDS -> {
                     val weatherRecordsCount = characteristic?.value?.get(0)?.toInt() ?: -1
                     if (weatherRecordsCount >= 0) {
-                        Log.i(LOGTAG, "There are $weatherRecordsCount records available on the device")
+                        Log.i(
+                            LOGTAG,
+                            "There are $weatherRecordsCount records available on the device"
+                        )
+                        currentlyStoredRecordsCount = weatherRecordsCount
+                        callbacks.amountOfRecordsRead(weatherRecordsCount)
                     }
                 }
             }
@@ -138,6 +213,7 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
     fun isConnectedToStation() = isConnected
     fun areCharacteristicsDiscovered() = areCharsDiscovered
     fun gattCallback() = bluetoothGattCallback
+    fun isFetchingRecords() = isFetchingRecords
 
     fun getAmountOfRecords() {
         readChar(WeatherStationConstants.WEATHER_STATION_CHAR_UUID_NO_OF_RECORDS)
@@ -156,6 +232,30 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
         writeDate(currentYear, currentMonth, currentDay, currentDayOfWeek)
         writeTime(currentHour, currentMinute, currentSecond)
         writeControlByte(WeatherStationConstants.WEATHER_STATION_CONTROL_SET_DATE_AND_TIME)
+    }
+
+    fun startFetchingRecords() {
+        if (currentlyStoredRecordsCount > 0) {
+            isFetchingRecords = true
+            writeControlByte(WeatherStationConstants.WEATHER_STATION_CONTROL_GET_DATA)
+        }
+    }
+
+    private fun notifyAboutNewRecord() {
+        callbacks.recordFetched(currentWeatherRecord)
+    }
+
+    private fun fetchNextRecord() {
+        readChar(WeatherStationConstants.WEATHER_STATION_CHAR_UUID_TIME)
+        readChar(WeatherStationConstants.WEATHER_STATION_CHAR_UUID_DATE)
+        readChar(WeatherStationConstants.WEATHER_STATION_CHAR_UUID_TEMPERATURE)
+        readChar(WeatherStationConstants.WEATHER_STATION_CHAR_UUID_PRESSURE)
+        readChar(WeatherStationConstants.WEATHER_STATION_CHAR_UUID_HUMIDITY)
+        if (currentlyStoredRecordsCount > 0) {
+            writeControlByte(WeatherStationConstants.WEATHER_STATION_CONTROL_FETCH_NEXT_RECORD)
+        } else {
+            isFetchingRecords = false
+        }
     }
 
     private fun enableOperationQueue() {
@@ -277,8 +377,10 @@ class WeatherStationIO(eventCallbacks: WeatherStationIOCallbacks) {
         }
 
         // Setup control char notifications
-        val controlChar = weatherStationChars[WeatherStationConstants.WEATHER_STATION_CHAR_UUID_CONTROL]
-        val numberOfMeasurementsChar = weatherStationChars[WeatherStationConstants.WEATHER_STATION_CHAR_UUID_NO_OF_RECORDS]
+        val controlChar =
+            weatherStationChars[WeatherStationConstants.WEATHER_STATION_CHAR_UUID_CONTROL]
+        val numberOfMeasurementsChar =
+            weatherStationChars[WeatherStationConstants.WEATHER_STATION_CHAR_UUID_NO_OF_RECORDS]
         enableCharNotifications(controlChar)
         enableCharNotifications(numberOfMeasurementsChar)
 

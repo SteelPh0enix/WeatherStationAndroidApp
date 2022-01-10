@@ -28,15 +28,18 @@ class WeatherStationService : Service() {
     private var btScanner: BLEScanner? = null
     private var wsDevice: BluetoothDevice? = null
     private var wsIO: WeatherStationIO? = null
-
     private var currentAmountOfRecordsAvailable = 0
+    private var recordList = mutableListOf<WeatherRecord>()
 
     // Inline/companion objects
     companion object {
-        const val ACTION_STATION_FOUND = "com.steelph0enix.weatherstationapp.ble.ACTION_STATION_FOUND"
+        const val ACTION_STATION_FOUND =
+            "com.steelph0enix.weatherstationapp.ble.ACTION_STATION_FOUND"
         const val ACTION_CONNECTED = "com.steelph0enix.weatherstationapp.ble.ACTION_CONNECTED"
         const val ACTION_DISCONNECTED = "com.steelph0enix.weatherstationapp.ble.ACTION_DISCONNECTED"
-        const val AMOUNT_OF_RECORDS_READ = "com.steelph0enix.weatherstationapp.ble.AMOUNT_OF_RECORDS_READ"
+        const val AMOUNT_OF_RECORDS_READ =
+            "com.steelph0enix.weatherstationapp.ble.AMOUNT_OF_RECORDS_READ"
+        const val RECORD_FETCHED = "com.steelph0enix.weatherstationapp.ble.RECORD_FETCHED"
     }
 
     private val btDeviceFoundCallback: BLEDeviceFoundCallback = {
@@ -66,6 +69,12 @@ class WeatherStationService : Service() {
 
         override fun recordFetched(record: WeatherRecord) {
             Log.i(LOGTAG, "Weather station record fetched (callback)!")
+            Log.i(
+                LOGTAG,
+                "Record data:\n\t${record.year}-${record.month}-${record.day}, ${record.hour}:${record.minute}:${record.second}\n\tTemperature: ${record.temperature}*C\n\tPressure: ${record.pressure}hPa\n\tHumidity: ${record.humidity}%"
+            )
+            recordList += record
+            broadcastUpdate(RECORD_FETCHED)
         }
 
         override fun dateAndTimeChanged() {
@@ -129,6 +138,18 @@ class WeatherStationService : Service() {
 
     fun updateAmountOfRecords() {
         wsIO?.getAmountOfRecords()
+    }
+
+    fun startDataFetching() {
+        wsIO?.startFetchingRecords()
+    }
+
+    fun getLatestWeatherRecord(): WeatherRecord {
+        return recordList.last()
+    }
+
+    fun getLatestWeatherRecordIndex(): Int {
+        return recordList.lastIndex
     }
 
     // Private methods

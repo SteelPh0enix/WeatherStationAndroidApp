@@ -18,4 +18,9 @@
     <string name="temperature_chart">Temperature chart</string>
     <string name="humidity_chart">Humidity chart</string>
     <string name="pressure_chart">Pressure chart</string>
+
+    <string name="temperature_value_celcius">%1$.2f°C</string>
+    <string name="temperature_value_fahrenheit">%1$.2f°F</string>
+    <string name="pressure_value">%1$.2fhPa</string>
+    <string name="humidity_value">%1$.2f%%</string>
 </resources>
